@@ -16,16 +16,6 @@
  */
 package org.apache.lucene.facet;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import org.apache.lucene.analysis.MockAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -38,37 +28,55 @@ import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState;
 import org.apache.lucene.facet.taxonomy.TaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.RandomIndexWriter;
-import org.apache.lucene.index.Term;
-import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.index.*;
+import org.apache.lucene.search.*;
 import org.apache.lucene.search.BooleanClause.Occur;
-import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.ConstantScoreScorer;
-import org.apache.lucene.search.ConstantScoreWeight;
-import org.apache.lucene.search.DocIdSetIterator;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.Scorer;
-import org.apache.lucene.search.SimpleCollector;
-import org.apache.lucene.search.Sort;
-import org.apache.lucene.search.SortField;
-import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.TwoPhaseIterator;
-import org.apache.lucene.search.Weight;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.InPlaceMergeSorter;
-import org.apache.lucene.util.InfoStream;
-import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.util.*;
+
+import java.io.IOException;
+import java.util.*;
 
 public class TestDrillSideways extends FacetTestCase {
+
+  protected DrillSideways getNewDrillSideways(IndexSearcher searcher, FacetsConfig config, SortedSetDocValuesReaderState state) {
+    return new DrillSideways(searcher, config, state);
+  }
+
+  protected DrillSideways getNewDrillSideways(IndexSearcher searcher, FacetsConfig config, TaxonomyReader taxoReader) {
+    return new DrillSideways(searcher, config, taxoReader);
+  }
+
+  protected DrillSideways getNewDrillSidewaysScoreSubdocsAtOnce(IndexSearcher searcher, FacetsConfig config, TaxonomyReader taxoReader) {
+    return new DrillSideways(searcher, config, taxoReader) {
+      @Override
+      protected boolean scoreSubDocsAtOnce() {
+        return true;
+      }
+    };
+  }
+
+  protected DrillSideways getNewDrillSidewaysBuildFacetsResult(IndexSearcher searcher, FacetsConfig config, TaxonomyReader taxoReader) {
+    return new DrillSideways(searcher, config, taxoReader) {
+      @Override
+      protected Facets buildFacetsResult(FacetsCollector drillDowns, FacetsCollector[] drillSideways, String[] drillSidewaysDims) throws IOException {
+        Map<String, Facets> drillSidewaysFacets = new HashMap<>();
+        Facets drillDownFacets = getTaxonomyFacetCounts(taxoReader, config, drillDowns);
+        if (drillSideways != null) {
+          for (int i = 0; i < drillSideways.length; i++) {
+            drillSidewaysFacets.put(drillSidewaysDims[i], getTaxonomyFacetCounts(taxoReader, config, drillSideways[i]));
+          }
+        }
+
+        if (drillSidewaysFacets.isEmpty()) {
+          return drillDownFacets;
+        } else {
+          return new MultiFacets(drillSidewaysFacets, drillDownFacets);
+        }
+
+      }
+    };
+  }
 
   public void testBasic() throws Exception {
     Directory dir = newDirectory();
@@ -116,7 +124,7 @@ public class TestDrillSideways extends FacetTestCase {
     // NRT open
     TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoWriter);
 
-    DrillSideways ds = new DrillSideways(searcher, config, taxoReader);
+    DrillSideways ds = getNewDrillSideways(searcher, config, taxoReader);
 
     //  case: drill-down on a single field; in this
     // case the drill-sideways + drill-down counts ==
@@ -288,7 +296,7 @@ public class TestDrillSideways extends FacetTestCase {
 
     DrillDownQuery ddq = new DrillDownQuery(config);
     ddq.add("Author", "Lisa");
-    DrillSidewaysResult r = new DrillSideways(searcher, config, taxoReader).search(null, ddq, 10);
+    DrillSidewaysResult r = getNewDrillSideways(searcher, config, taxoReader).search(null, ddq, 10);
 
     assertEquals(1, r.hits.totalHits);
     // Publish Date is only drill-down, and Lisa published
@@ -349,7 +357,7 @@ public class TestDrillSideways extends FacetTestCase {
 
     DrillDownQuery ddq = new DrillDownQuery(config);
     ddq.add("dim", "a");
-    DrillSidewaysResult r = new DrillSideways(searcher, config, taxoReader).search(null, ddq, 10);
+    DrillSidewaysResult r = getNewDrillSideways(searcher, config, taxoReader).search(null, ddq, 10);
 
     assertEquals(3, r.hits.totalHits);
     assertEquals("dim=dim path=[] value=6 childCount=4\n  a (3)\n  b (1)\n  c (1)\n  d (1)\n", r.facets.getTopChildren(10, "dim").toString());
@@ -699,7 +707,7 @@ public class TestDrillSideways extends FacetTestCase {
       // Verify docs are always collected in order.  If we
       // had an AssertingScorer it could catch it when
       // Weight.scoresDocsOutOfOrder lies!:
-      new DrillSideways(s, config, tr).search(ddq,
+      getNewDrillSideways(s, config, tr).search(ddq,
                            new SimpleCollector() {
                              int lastDocID;
 
@@ -728,12 +736,7 @@ public class TestDrillSideways extends FacetTestCase {
         // drill-down values, because in that case it's
         // easily possible for one of the DD terms to be on
         // a future docID:
-        new DrillSideways(s, config, tr) {
-          @Override
-          protected boolean scoreSubDocsAtOnce() {
-            return true;
-          }
-        }.search(ddq, new AssertingSubDocsAtOnceCollector());
+        getNewDrillSidewaysScoreSubdocsAtOnce(s, config, tr).search(ddq, new AssertingSubDocsAtOnceCollector());
       }
 
       TestFacetResult expected = slowDrillSidewaysSearch(s, docs, contentToken, drillDowns, dimValues, filter);
@@ -741,28 +744,9 @@ public class TestDrillSideways extends FacetTestCase {
       Sort sort = new Sort(new SortField("id", SortField.Type.STRING));
       DrillSideways ds;
       if (doUseDV) {
-        ds = new DrillSideways(s, config, sortedSetDVState);
+        ds = getNewDrillSideways(s, config, sortedSetDVState);
       } else {
-        ds = new DrillSideways(s, config, tr) {
-            @Override
-            protected Facets buildFacetsResult(FacetsCollector drillDowns, FacetsCollector[] drillSideways, String[] drillSidewaysDims) throws IOException {
-              Map<String,Facets> drillSidewaysFacets = new HashMap<>();
-              Facets drillDownFacets = getTaxonomyFacetCounts(taxoReader, config, drillDowns);
-              if (drillSideways != null) {
-                for(int i=0;i<drillSideways.length;i++) {
-                  drillSidewaysFacets.put(drillSidewaysDims[i],
-                                          getTaxonomyFacetCounts(taxoReader, config, drillSideways[i]));
-                }
-              }
-
-              if (drillSidewaysFacets.isEmpty()) {
-                return drillDownFacets;
-              } else {
-                return new MultiFacets(drillSidewaysFacets, drillDownFacets);
-              }
-
-            }
-          };
+        ds = getNewDrillSidewaysBuildFacetsResult(s, config, tr);
       }
 
       // Retrieve all facets:
@@ -1092,7 +1076,7 @@ public class TestDrillSideways extends FacetTestCase {
 
     // Count "Author"
     FacetsConfig config = new FacetsConfig();
-    DrillSideways ds = new DrillSideways(searcher, config, taxoReader);
+    DrillSideways ds = getNewDrillSideways(searcher, config, taxoReader);
     DrillDownQuery ddq = new DrillDownQuery(config);
     ddq.add("Author", "Lisa");
 
@@ -1131,7 +1115,7 @@ public class TestDrillSideways extends FacetTestCase {
     // NRT open
     TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoWriter);
 
-    DrillSideways ds = new DrillSideways(searcher, config, taxoReader);
+    DrillSideways ds = getNewDrillSideways(searcher, config, taxoReader);
 
     BooleanQuery.Builder bq = new BooleanQuery.Builder();
     bq.add(new TermQuery(new Term("field", "foo")), BooleanClause.Occur.MUST);
