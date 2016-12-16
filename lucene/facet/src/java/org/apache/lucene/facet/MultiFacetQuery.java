@@ -18,27 +18,39 @@ package org.apache.lucene.facet;
 
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queries.TermsQuery;
+import org.apache.lucene.search.Query;
 
 import java.util.ArrayList;
 import java.util.Collection;
 
 /**
- * The facet query is a multiterm query over a Facet.
+ * A multi-terms {@link Query} over a {@link FacetField}.
+ * <p>
+ * <b>NOTE:</b>This helper class is an alternative to {@link DrillDownQuery}
+ * especially in cases where you don't intend to use {@link DrillSideways}
  *
  * @lucene.experimental
  * @see org.apache.lucene.queries.TermsQuery
  */
 public class MultiFacetQuery extends TermsQuery {
 
+  /**
+   * Creates a new {@code MultiFacetQuery} filtering the query on the given dimension.
+   */
   public MultiFacetQuery(final FacetsConfig facetsConfig, final String dimension, final String[]... paths) {
     super(toTerms(facetsConfig.getDimConfig(dimension), dimension, paths));
   }
 
+  /**
+   * Creates a new {@code MultiFacetQuery} filtering the query on the given dimension.
+   * <p>
+   * <b>NOTE:</b>Uses FacetsConfig.DEFAULT_DIM_CONFIG.
+   */
   public MultiFacetQuery(final String dimension, final String[]... paths) {
     super(toTerms(FacetsConfig.DEFAULT_DIM_CONFIG, dimension, paths));
   }
 
-  public static Collection<Term> toTerms(final FacetsConfig.DimConfig dimConfig, final String dimension,
+  static Collection<Term> toTerms(final FacetsConfig.DimConfig dimConfig, final String dimension,
           final String[]... paths) {
     final Collection<Term> terms = new ArrayList<>(paths.length);
     for (String[] path : paths)
