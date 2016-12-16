@@ -16,37 +16,82 @@
  */
 package org.apache.lucene.facet;
 
+import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetField;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState;
 import org.apache.lucene.facet.taxonomy.TaxonomyReader;
 import org.apache.lucene.search.CollectorManager;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MultiCollectorManager;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.util.ThreadInterruptedException;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+/**
+ * Concurrent computing of drill down and sideways counts for the provided
+ * {@link DrillDownQuery}. Drill sideways counts include
+ * alternative values/aggregates for the drill-down
+ * dimensions so that a dimension does not disappear after
+ * the user drills down into it.
+ * <p>
+ * Use one of the static search
+ * methods to do the search, and then get the hits and facet
+ * results from the returned {@link DrillSidewaysResult}.
+ * <p>
+ * This class differs from the {@link DrillSideways}
+ * by opening up concurrency in 2 ways:
+ * <p>
+ * The first way is it uses the IndexSearcher.search API that takes a
+ * CollectorManager such that if you had created that
+ * IndexSearcher with an executor, you get concurrency across the
+ * segments in the index.
+ * <p>
+ * The second way is that it takes its own
+ * executor and then runs the N DrillDown queries concurrently (to
+ * compute the sideways counts).
+ * <p><b>NOTE</b>: this allocates one {@link
+ * FacetsCollectorManager} for each drill-down, plus one.  If your
+ * index has high number of facet labels then this will
+ * multiply your memory usage.
+ *
+ * @lucene.experimental
+ */
 public class ParallelDrillSideways extends DrillSideways {
 
   private final ExecutorService executor;
 
+  /**
+   * Create a new {@code ParallelDrillSideways} instance.
+   */
   public ParallelDrillSideways(final ExecutorService executor, final IndexSearcher searcher, final FacetsConfig config,
           final SortedSetDocValuesReaderState state) {
-    super(searcher, config, state);
-    this.executor = executor;
+    this(executor, searcher, config, null, state);
   }
 
+  /**
+   * Create a new {@code ParallelDrillSideways} instance, assuming the categories were
+   * indexed with {@link SortedSetDocValuesFacetField}.
+   */
   public ParallelDrillSideways(final ExecutorService executor, final IndexSearcher searcher, final FacetsConfig config,
           final TaxonomyReader taxoReader) {
-    super(searcher, config, taxoReader);
-    this.executor = executor;
+    this(executor, searcher, config, taxoReader, null);
   }
 
+  /**
+   * Create a new {@code ParallelDrillSideways} instance, where some
+   * dimensions were indexed with {@link SortedSetDocValuesFacetField}
+   * and others were indexed with {@link FacetField}.
+   */
   public ParallelDrillSideways(final ExecutorService executor, final IndexSearcher searcher, final FacetsConfig config,
           final TaxonomyReader taxoReader, final SortedSetDocValuesReaderState state) {
     super(searcher, config, taxoReader, state);
@@ -155,9 +200,13 @@ public class ParallelDrillSideways extends DrillSideways {
             collectorResult);
   }
 
-  public static class Result<R> extends DrillSidewaysResult {
+  /**
+   * Result of a drill parallel sideways search, including the
+   * {@link Facets} and {@link TopDocs}.
+   */
+  static class Result<R> extends DrillSidewaysResult {
 
-    public final R collectorResult;
+    final R collectorResult;
 
     /**
      * Sole constructor.
