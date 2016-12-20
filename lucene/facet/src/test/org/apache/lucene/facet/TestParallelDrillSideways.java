@@ -45,16 +45,16 @@ public class TestParallelDrillSideways extends TestDrillSideways {
 
   protected DrillSideways getNewDrillSideways(IndexSearcher searcher, FacetsConfig config,
           SortedSetDocValuesReaderState state) {
-    return new ParallelDrillSideways(executor, searcher, config, state);
+    return new DrillSideways(searcher, config, null, state, executor);
   }
 
   protected DrillSideways getNewDrillSideways(IndexSearcher searcher, FacetsConfig config, TaxonomyReader taxoReader) {
-    return new ParallelDrillSideways(executor, searcher, config, taxoReader);
+    return new DrillSideways(searcher, config, taxoReader, null, executor);
   }
 
   protected DrillSideways getNewDrillSidewaysScoreSubdocsAtOnce(IndexSearcher searcher, FacetsConfig config,
           TaxonomyReader taxoReader) {
-    return new ParallelDrillSideways(executor, searcher, config, taxoReader) {
+    return new DrillSideways(searcher, config, taxoReader, null, executor) {
       @Override
       protected boolean scoreSubDocsAtOnce() {
         return true;
@@ -64,7 +64,7 @@ public class TestParallelDrillSideways extends TestDrillSideways {
 
   protected DrillSideways getNewDrillSidewaysBuildFacetsResult(IndexSearcher searcher, FacetsConfig config,
           TaxonomyReader taxoReader) {
-    return new ParallelDrillSideways(executor, searcher, config, taxoReader) {
+    return new DrillSideways(searcher, config, taxoReader, null, executor) {
       @Override
       protected Facets buildFacetsResult(FacetsCollector drillDowns, FacetsCollector[] drillSideways,
               String[] drillSidewaysDims) throws IOException {
