@@ -54,11 +54,9 @@ import java.util.concurrent.Future;
  * alternative values/aggregates for the drill-down
  * dimensions so that a dimension does not disappear after
  * the user drills down into it.
- * <p>
  * <p> Use one of the static search
  * methods to do the search, and then get the hits and facet
  * results from the returned {@link DrillSidewaysResult}.
- * <p>
  * <p><b>NOTE</b>: this allocates one {@link
  * FacetsCollector} for each drill-down, plus one.  If your
  * index has high number of facet labels then this will
