@@ -448,7 +448,7 @@ public class DrillSideways {
    */
   static class ConcurrentDrillSidewaysResult<R> extends DrillSidewaysResult {
 
-    final R collectorResult;
+    public final R collectorResult;
 
     /**
      * Sole constructor.
@@ -456,7 +456,7 @@ public class DrillSideways {
      * @param facets
      * @param hits
      */
-    public ConcurrentDrillSidewaysResult(Facets facets, TopDocs hits, R collectorResult) {
+    ConcurrentDrillSidewaysResult(Facets facets, TopDocs hits, R collectorResult) {
       super(facets, hits);
       this.collectorResult = collectorResult;
     }
